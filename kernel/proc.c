@@ -126,28 +126,39 @@ found:
   p->state = USED;
 
   // Allocate a trapframe page.
-  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+  if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
   }
 
-  // An empty user page table.
+  // Allocate a usyscall page
+  if ((p->usyscall = (struct usyscall *)kalloc()) == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  p->usyscall->pid = p->pid; // Initialize PID
+  //printf("allocproc: usyscall allocated at %p\n", p->usyscall);
+
+  
+
+  // Create an empty user page table.
   p->pagetable = proc_pagetable(p);
-  if(p->pagetable == 0){
+  if (p->pagetable == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
   }
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
+  // Set up new context to start executing at forkret.
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
   return p;
 }
+
 
 // free a proc structure and the data hanging from it,
 // including user pages.
@@ -169,6 +180,11 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  if(p->usyscall){
+    kfree((void*)p->usyscall);
+     p->usyscall = 0;
+  }
+ 
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -201,6 +217,15 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
+  if(mappages(pagetable, USYSCALL, PGSIZE, (uint64)
+(p->usyscall), PTE_R | PTE_U) < 0){
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+}
+
+//printf("proc_pagetable: usyscall address = %p\n", p->usyscall);
 
   return pagetable;
 }
@@ -210,9 +235,10 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
-  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-  uvmunmap(pagetable, TRAPFRAME, 1, 0);
-  uvmfree(pagetable, sz);
+uvmunmap(pagetable, USYSCALL, 1, 0);
+uvmunmap(pagetable, TRAPFRAME, 1, 0);
+uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+uvmfree(pagetable, sz);
 }
 
 // a user program that calls exec("/init")

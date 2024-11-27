@@ -74,8 +74,41 @@ sys_sleep(void)
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
-  return 0;
+    // lab pgtbl: your code here.
+    // solution: implement
+    uint64 addr; // arg 0 the starting virtual address of the first user page to check
+    int n; // arg 1 the number of pages to check
+    int bitmask; // arg 2 a user address to a buffer to store the results into a bitmask
+    struct proc* p = myproc(); // current process
+    int buf = 0; // store a temporary buffer in the kernel;
+    // assume that all pages are not accessed: 0x0000 0000 (32 PTEs)
+
+    argaddr(0, &addr);
+    argint(1, &n);
+    argint(2,&bitmask);
+
+    // upper limit and lower limit for safety
+    if( n > 32 || n < 0){
+        return -1;
+    }
+
+    // result in buf
+    pte_t *pte = 0;
+
+    for(int i = 0; i < n; i++){
+        int va = addr + i * PGSIZE;
+        pte = walk(p->pagetable, va, 0);
+        if(*pte & PTE_A){
+            buf = buf | (1L << i); // i_th page is accessed
+        }
+        *pte = (*pte) & ~PTE_A; // set the access bit (PTE_A) to zero
+    }
+
+    if(copyout(p->pagetable, bitmask, (char*)&buf, sizeof(buf)) < 0){
+        return -1;
+    }
+
+    return 0;
 }
 #endif
 
